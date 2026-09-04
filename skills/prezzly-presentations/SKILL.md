@@ -44,10 +44,10 @@ A large rewrite is still often a revision. How big the change is does **not** de
 
 Decide only when the user was explicit:
 
-- Same deck, new version: they named the deck, pasted a Prezzly URL or presentation id, or said update / new version / next revision / replace the current one → `add_revision`.
+- Same deck, new version: they named the deck, pasted a Prezzly URL or presentation id, or said update / new version / next revision / replace the current one → Edit (same deck, new revision).
 - New deck: first upload in the thread, or they said new presentation / another deck / a separate copy → `create_presentation`.
 
-If you are not sure, **stop and ask**. Do not pick for them. Ask one question: new version of the existing deck (`add_revision`) or a new presentation (`create_presentation`)? Wait for the answer.
+If you are not sure, **stop and ask**. Do not pick for them. Ask one question: new version of the existing deck, or a new presentation? Wait for the answer.
 
 Typical cases that need a question: the thread already has a deck, the title is similar, they said "przerób" / "zrób od nowa" / "nowa wersja" without saying which, or they ask to upload a rebuilt folder after an earlier upload.
 
@@ -55,7 +55,9 @@ Do not call `list_presentations` to guess. Do not create a second deck "just in 
 
 ## Inventory before upload
 
-From the folder that contains `index.html`:
+Skip a full inventory when you are only changing copy in an already-uploaded `index.html`. Do not read the whole HTML into chat just to paste it into MCP.
+
+For a first upload, or when you added/removed/renamed assets, from the folder that contains `index.html`:
 
 1. List **every** file (`ls -R` / `find`). Do not filter by extension. Images, fonts, and media count.
 2. Collect relative references from `index.html` and every `.css` (`src`, `href`, `srcset`, `url()`). Skip `https:`, `data:`, `#`, and `mailto:`.
@@ -67,6 +69,8 @@ Resolve new presentation vs revision first. If this is a new version of an exist
 
 Never put image or font bytes in MCP tool arguments. The model cannot generate megabytes of base64.
 
+If `create_upload_link` or `add_files` is not in your tool list, the client has a stale catalog. Stop. Tell the user to reload the Prezzly MCP server (Cursor: Settings -> MCP -> toggle). Do not send HTML, a zip, or a placeholder through `add_revision`.
+
 ### Chat clients (Claude.ai, ChatGPT, no disk)
 
 Send `files` with one self-contained `index.html`. Put CSS/JS in that HTML. Use https image URLs or small data URIs. Optional: `add_files` with `url` so the server fetches a remote asset.
@@ -76,8 +80,6 @@ create_presentation({ "title": "Q1 Review", "kind": "presentation", "files": [{ 
 ```
 
 Do not build a zip in the browser.
-
-If `create_upload_link` or `add_files` is not in your tool list, the client has a stale catalog. Tell the user to reload the Prezzly MCP server (Cursor: Settings -> MCP -> toggle). Do not send a placeholder through `add_revision` to obtain `uploadUrl`.
 
 ### Local clients (Cursor, Claude Code, files on disk)
 
@@ -120,23 +122,39 @@ Add `-w '\n%{http_code}\n'` to each `curl` so you see the status. `curl -sS` pri
 | 402 | `code: plan_limit` | Storage or upload cap hit. Tell the user; do not retry. |
 | 409 | `Upload index.html or a zip first` | Empty deck. Upload `index.html` or a zip before assets. |
 | 409 | `files` + `missingAssets` listed | Path exists with different bytes. To replace it use `add_revision` or a zip to `uploadUrl`. |
-| 400 | `index.html cannot be added this way` | Replace HTML via `add_revision` or a zip, not a single PUT to an existing deck. |
+| 400 | `index.html cannot be added this way` | Replace HTML with a zip to `uploadUrl` (local) or `add_revision` files (chat), not a single PUT of index.html. |
 
 Re-`curl -T` of the exact same bytes is safe: it returns 200, not 409.
 
-Do not run `zip -j index.html`. Do not put binaries in `archive` or `files[].content`.
+Do not run `zip -j`. Do not put binaries in `archive` or `files[].content`.
 
 ## Edit
 
 Only after the user chose an existing deck (or you asked and they said revision).
 
-- Need only a fresh `uploadUrl`: `create_upload_link`. Never send a placeholder `index.html` through `add_revision` just to get a link.
-- Text-only change: `add_revision` with the real `index.html` from disk. Assets the new HTML still references are copied from the previous revision (`reusedAssets`). Do not re-upload those images.
-- Replace the whole set including binaries: `curl -T` a full zip to `uploadUrl`, or `add_revision` HTML plus `curl -T` new/changed assets.
-- After `add_revision`, compare `revision.totalBytes` with the previous revision from `get_presentation` (`revisions[]`). If the new one is much smaller and that was not intended, call `restore_revision`.
-- Add missing assets to the current revision: `curl -T` to `uploadUrl`, or `add_files` with `url` / small `content`. Existing paths are rejected; use `add_revision` to replace.
+If `create_upload_link` is not in the tool list, **stop**. Tell the user to reload the Prezzly MCP server (Cursor: Settings -> MCP -> toggle). Do not fall back to stuffing HTML, a zip, or base64 into MCP arguments.
+
+### Local clients (Cursor, files on disk)
+
+Do not paste `index.html` or binaries into `add_revision` / `files` / `archive`. That copies the whole file through the model and is slow.
+
+1. Call `create_upload_link` with the presentation id. Read `uploadUrl`.
+2. Zip what changed. A text-only tweak: zip `index.html` from the deck folder. Previously uploaded assets still referenced by the HTML are reused (`reusedAssets`). New or replaced images go in the same zip.
+3. `curl -sS -T /tmp/deck.zip -H 'Content-Type: application/zip' -w '\n%{http_code}\n' "<uploadUrl>"`
+4. Call `get_presentation_files`. When `missingAssets` is empty, give `viewUrl`.
+
+A zip to `uploadUrl` is a new revision. A single PUT of `index.html` to an existing deck is rejected (400) - do not try that.
+
+### Chat clients (no disk)
+
+`add_revision` with `files` containing the real `index.html`. Assets still referenced are reused. Do not send a placeholder. Optional: `add_files` with `url` for a remote asset.
+
+### After upload
+
+- Compare `revision.totalBytes` with the previous revision from `get_presentation` (`revisions[]`). If the new one is much smaller and that was not intended, call `restore_revision`.
+- Add missing assets to the current revision: `curl -T` to `uploadUrl`, or `add_files` with `url` / small `content`. Existing paths are rejected; zip a new revision to replace.
 - `restore_revision` rolls back.
-- Do not call `create_presentation` for an update. A full rebuild of the same deck is still `add_revision`.
+- Do not call `create_presentation` for an update. A full rebuild of the same deck is still a revision.
 
 ## Slide markup
 
@@ -157,7 +175,8 @@ Only after the user chose an existing deck (or you asked and they said revision)
 - Decide new presentation vs revision when unsure. Ask.
 - Call `list_presentations` to guess which deck to update, or before a first upload.
 - Filter the folder by `html`/`css`/`js`/`md` and ignore images.
-- Put image or font bytes in tool arguments (`archive` or `files[].content`).
-- Zip only `index.html` (`zip -j`).
+- Put image, font, zip, or a local `index.html` in tool arguments (`archive` or `files[].content`). Local clients use `uploadUrl` + curl.
+- Fall back to pasting HTML into `add_revision` when `create_upload_link` is missing. Reload MCP instead.
+- Flatten a zip (`zip -j`). Keep relative paths. A zip that contains only `index.html` is fine for a text-only revision.
 - Tell the user the upload is done while `missingAssets` is non-empty or `warning` is set.
 - Give `viewUrl` without calling `get_presentation_files` after the last upload.
