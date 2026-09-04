@@ -1,108 +1,85 @@
 ---
 name: prezzly-presentations
-description: Build HTML presentations compatible with Prezzly — presenter mode, speaker notes (data-notes), live slide control, and URL slide navigation via prezzly-present.js runtime.
+description: Build HTML presentations and dashboards for Prezzly and upload them with one MCP call (create_presentation). Covers slides vs dashboard, runtime injection, chat vs local folder upload, and add_revision.
 ---
 
 # Prezzly presentations
 
-When creating HTML presentations for Prezzly, follow this contract exactly so presenter mode, speaker notes, live slide control, and smooth slide transitions work correctly.
+Use this skill when the user wants you to **build** a Prezzly deck and/or **upload** it. Upload is one tool call. Do not list the library first. Do not upload a placeholder.
 
-## Runtime (required, must be last script before `</body>`)
+## When to use
 
-```html
-  <script src="https://prezzly.io/runtime/v1/prezzly-present.js"></script>
-</body>
-```
+- Build a new HTML presentation (slides) or dashboard (scrollable page).
+- Upload a finished folder or HTML to Prezzly via MCP.
+- Update an existing deck the user already named.
 
-The runtime MUST load after all other scripts (especially the slide engine). It handles:
-- `?slide=N` URL parameter (1-based): jumps to slide N on load without a visible flash
-- `postMessage` protocol for live presenter control between windows
-- Speaker notes extraction and communication
+## Slides vs dashboard
 
-> Prezzly also injects this script and a no-flash guard automatically when serving the presentation — you do not need to add anything extra for that. Include the `<script>` tag explicitly so the deck also works in local preview.
+`kind` is chosen at upload time on `create_presentation`. It is not inferred from the HTML.
 
-## Slide structure
+- `kind=presentation` (default): 16:9 slides. Each slide is an element with class `slide`. Exactly one also has class `active`. CSS should hide non-active slides (`.slide { display: none }` and `.slide.active { display: block }`). Design each slide to fill a 16:9 frame.
+- `kind=dashboard`: one vertically scrollable page, not slides. Mark major sections with `id` or `data-prezzly-section` (fallback: `h1`–`h3`) so section navigation works.
 
-- Each slide is an element with class `slide`.
-- Exactly **one** slide has class `active` on load — always the **first** slide.
-- Keyboard navigation (ArrowLeft / ArrowRight / Space) MUST change which slide has `active` — the runtime uses synthetic key events to navigate to `?slide=N`.
-- Do not use `display:none` directly on individual `.slide` elements via inline `style` — use class-based CSS so the runtime's class observation works correctly.
+Speaker notes: `data-notes` on each `.slide`, or later via `get_notes` / `set_note` / `set_notes`. UI notes override code notes.
 
-```html
-<div id="deck">
-  <section class="slide active" data-notes="Welcome slide notes here.">
-    <h1>Title</h1>
-  </section>
-  <section class="slide" data-notes="Second slide talking points.">
-    <h2>Topic</h2>
-  </section>
-</div>
-```
+Content runs in a sandboxed iframe: no `localStorage`, no cookies, no top-level navigation.
 
-## Speaker notes
+## Runtime
 
-Add presenter notes on **every** slide using the `data-notes` attribute:
+Prezzly injects the runtime when it serves the deck. You do **not** need your own JavaScript for arrow keys. Prezzly toggles the `active` class (keyboard, presenter view, `?slide=N`, thumbnails).
+
+Optional and harmless:
 
 ```html
-<section class="slide" data-notes="Remind audience about the Q1 targets. Mention the 15% growth figure.">
+<script src="https://api.prezzly.ai/runtime/v1/prezzly-present.js"></script>
 ```
 
-- Notes are extracted from `data-notes` at upload time and shown in Prezzly's presenter view.
-- Users can override notes in the Prezzly dashboard without changing the HTML.
-- Always fill `data-notes` — an empty string is acceptable but a real note is better.
+Do not require `prezzly.io` as the runtime host. Do not add a custom ArrowLeft/ArrowRight handler unless the deck already has one and you want to keep it.
 
-## URL slide navigation
+## Upload (one call)
 
-The runtime reads `?slide=N` (1-based) on load and updates the URL on every slide change. This enables:
-- Presenter preview thumbnails (prev/current/next shown as mini-iframes with `?slide=N`)
-- Deep links to specific slides
-- Sync between audience window and presenter window
+Call `create_presentation` once. Then stop and give the user `viewUrl`. The deck is already live.
 
-Do not rely on `same-origin` access — presentations run in a sandboxed iframe (`allow-scripts` only, no `allow-same-origin`).
+### Chat clients (Claude.ai, no disk)
 
-## What you get
+Send `files` with one self-contained `index.html`. Put CSS/JS in that HTML. Use https image URLs or small data URIs. Do not build a zip in the browser.
 
-- **Presenter view**: separate window with current / previous / next slide previews and speaker notes.
-- **Live control**: navigate slides from the presenter window; audience window follows in real time.
-- **Notes in Prezzly**: upload extracts `data-notes`; users can edit notes per slide in the dashboard.
+```
+create_presentation({ "title": "Q1 Review", "kind": "presentation", "files": [{ "path": "index.html", "content": "<!doctype html>..." }] })
+```
 
-## Full minimal template
+### Local clients (Cursor, Claude Code, files on disk)
+
+Zip `index.html` plus assets as they are. Send `archive` as that zip, base64-encoded. Do not recompress or convert images. Do not base64 each file by hand.
+
+```
+create_presentation({ "title": "Q1 Review", "kind": "dashboard", "archive": "<base64 zip>" })
+```
+
+A single top-level folder in the zip is unwrapped. A lone `.html` file is renamed to `index.html`.
+
+## Edit
+
+Only if the user pointed at an existing deck. Call `add_revision` with a new `archive` or a new full `index.html` in `files`. Revisions are history. `restore_revision` rolls back.
+
+Do not call `create_presentation` again for an existing deck.
+
+## Slide markup
 
 ```html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>My presentation</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    .slide { display: none; min-height: 100vh; padding: 3rem; }
-    .slide.active { display: block; }
-  </style>
-</head>
-<body>
-  <section class="slide active" data-notes="Opening remarks for the presenter.">
-    <h1>Hello</h1>
-  </section>
-  <section class="slide" data-notes="Main point one — elaborate here.">
-    <h2>Topic</h2>
-  </section>
-  <script>
-    const slides = [...document.querySelectorAll('.slide')];
-    let current = 0;
-    function goTo(i) {
-      slides[current].classList.remove('active');
-      current = Math.max(0, Math.min(i, slides.length - 1));
-      slides[current].classList.add('active');
-    }
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); goTo(current + 1); }
-      if (e.key === 'ArrowLeft') { e.preventDefault(); goTo(current - 1); }
-    });
-  </script>
-  <!-- Runtime must be the LAST script before </body> -->
-  <script src="https://prezzly.io/runtime/v1/prezzly-present.js"></script>
-</body>
-</html>
+<section class="slide active" data-notes="Opening remarks.">
+  <h1>Hello</h1>
+</section>
+<section class="slide" data-notes="Main point.">
+  <h2>Topic</h2>
+</section>
 ```
+
+## Do not
+
+- Upload a stub, placeholder, or empty shell and promise to revise later.
+- Call `list_presentations` before a first upload.
+- Base64 every image by hand when you have a local folder. Use `archive`.
+- Build a zip inside Claude.ai. Use `files` there.
+- Treat `prezzly.io` as a required runtime URL.
+- Tell the user the upload is done if the tool returns a stub `warning`. Call `add_revision` with the real files instead.
