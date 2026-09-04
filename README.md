@@ -24,7 +24,7 @@ npx skills add tagpilot/prezzly-skills --skill prezzly-presentations
 
 | Skill | Description |
 |-------|-------------|
-| `prezzly-presentations` | Build HTML slide decks with Prezzly runtime, `.slide` convention, `data-notes`, and URL slide navigation |
+| `prezzly-presentations` | Build HTML slide decks with Prezzly runtime, `.slide` convention, `data-notes`, and upload via MCP (`uploadUrl` + curl for assets) |
 
 ## Requirements
 
