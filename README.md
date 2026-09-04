@@ -1,6 +1,6 @@
 # Prezzly Skills
 
-Agent skills for building HTML presentations compatible with [Prezzly](https://prezzly.io) — including presenter mode, speaker notes, and live slide control.
+Agent skills for building HTML presentations compatible with [Prezzly](https://prezzly.io) - including presenter mode, speaker notes, and live slide control.
 
 ## Install
 
