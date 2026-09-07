@@ -156,6 +156,15 @@ A zip to `uploadUrl` is a new revision. A single PUT of `index.html` to an exist
 - `restore_revision` rolls back.
 - Do not call `create_presentation` for an update. A full rebuild of the same deck is still a revision.
 
+## Share links
+
+`create_share_link` creates a public view-only link. On Pro, Team, and
+Enterprise it never expires by default; pass `ttlDays` to request a dated link.
+On Free it expires after 7 days by default and is capped at 30 days. Pass
+`neverExpires: true` only for paid plans. Free returns a structured
+`plan_limit` error. A never-expiring link has `expiresAt: null` in
+`create_share_link` and `get_presentation`.
+
 ## Slide markup
 
 ```html
