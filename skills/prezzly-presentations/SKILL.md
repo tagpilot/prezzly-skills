@@ -1,6 +1,6 @@
 ---
 name: prezzly-presentations
-description: Build HTML presentations and dashboards for Prezzly and upload them via MCP. Covers slides vs dashboard, new deck vs revision (ask when unsure), inventory of local assets, uploadUrl + curl for binaries, add_files, and add_revision.
+description: Build HTML presentations and dashboards for Prezzly and upload them via MCP. Covers slides vs dashboard (ask when unsure), new deck vs revision (ask when unsure), inventory of local assets, uploadUrl + curl for binaries, add_files, and add_revision.
 ---
 
 # Prezzly presentations
@@ -15,10 +15,16 @@ Use this skill when the user wants you to **build** a Prezzly deck and/or **uplo
 
 ## Slides vs dashboard
 
-`kind` is chosen at upload time on `create_presentation`. It is not inferred from the HTML.
+`kind` is chosen at upload time on `create_presentation`. The server does not infer it from the HTML. Check `index.html` before choosing.
 
-- `kind=presentation` (default): 16:9 slides. Each slide is an element with class `slide`. Exactly one also has class `active`. CSS should hide non-active slides (`.slide { display: none }` and `.slide.active { display: block }`). Design each slide to fill a 16:9 frame.
-- `kind=dashboard`: one vertically scrollable page, not slides. Mark major sections with `id` or `data-prezzly-section` (fallback: `h1`–`h3`) so section navigation works.
+- `kind=presentation` only if `index.html` has `.slide` elements and exactly one also has class `active`. 16:9 slides. CSS should hide non-active slides (`.slide { display: none }` and `.slide.active { display: block }`). Design each slide to fill a 16:9 frame.
+- `kind=dashboard`: a scrollable page without `.slide` elements. Mark major sections with `id` or `data-prezzly-section` (fallback: `h1`–`h3`) so section navigation works.
+
+If you are not sure, **stop and ask**. Do not pick for them. Ask one question: slides (presentation) or a scrollable page (dashboard)? Wait for the answer.
+
+Typical cases that need a question: you have not opened `index.html` yet; the file is mixed (both `.slide` and a long scroll page); the user said "prezka" / "slides" but the file has no `.slide`; the user said dashboard / "strona" but the file has `.slide`.
+
+If an upload `warning` says the kind is wrong and the file is unambiguous, call `update_presentation` with the suggested `kind`. If the file is mixed or the user asked for the other type, ask first. Do not create a second deck.
 
 Speaker notes: `data-notes` on each `.slide`, or later via `get_notes` / `set_note` / `set_notes`. UI notes override code notes.
 
@@ -117,7 +123,8 @@ Add `-w '\n%{http_code}\n'` to each `curl` so you see the status. `curl -sS` pri
 |--------|-------------|-----|
 | 200 | `missingAssets` non-empty | Upload the listed paths. Not done yet. |
 | 200 | `missingAssets: []` | Call `get_presentation_files`, then give `viewUrl`. |
-| 200 | `warning` set | Act on the warning (stub, shrink, missing) before finishing. |
+| 200 | `warning` set | Act on the warning (stub, shrink, missing, or wrong kind) before finishing. |
+| 200 | `warning` mentions `update_presentation` and `kind=` | Call `update_presentation` with the suggested `kind`. Do not create a second deck. |
 | 401 | `create_upload_link` hint | Token expired. Call `create_upload_link`, retry. |
 | 402 | `code: plan_limit` | Storage or upload cap hit. Tell the user; do not retry. |
 | 409 | `Upload index.html or a zip first` | Empty deck. Upload `index.html` or a zip before assets. |
@@ -131,6 +138,8 @@ Do not run `zip -j`. Do not put binaries in `archive` or `files[].content`.
 ## Edit
 
 Only after the user chose an existing deck (or you asked and they said revision).
+
+`update_presentation` can rename, move, or change `kind`. Use `kind` when an upload warning said the content type was wrong, or the user asked to treat the deck as slides vs a dashboard. It does not upload files.
 
 If `create_upload_link` is not in the tool list, **stop**. Tell the user to reload the Prezzly MCP server (Cursor: Settings -> MCP -> toggle). Do not fall back to stuffing HTML, a zip, or base64 into MCP arguments.
 
@@ -182,10 +191,12 @@ On Free it expires after 7 days by default and is capped at 30 days. Pass
 - Send a placeholder `index.html` through `add_revision` to get `uploadUrl`. Use `create_upload_link`.
 - Upload a zip to `uploadUrl<name>.zip` as a regular asset. Zip goes to `uploadUrl` (or is unpacked if the path ends in `.zip`).
 - Decide new presentation vs revision when unsure. Ask.
+- Guess `kind` when the file is mixed, unchecked, or conflicts with what the user said. Ask.
 - Call `list_presentations` to guess which deck to update, or before a first upload.
 - Filter the folder by `html`/`css`/`js`/`md` and ignore images.
 - Put image, font, zip, or a local `index.html` in tool arguments (`archive` or `files[].content`). Local clients use `uploadUrl` + curl.
 - Fall back to pasting HTML into `add_revision` when `create_upload_link` is missing. Reload MCP instead.
 - Flatten a zip (`zip -j`). Keep relative paths. A zip that contains only `index.html` is fine for a text-only revision.
 - Tell the user the upload is done while `missingAssets` is non-empty or `warning` is set.
+- Ignore a kind-mismatch `warning`. Call `update_presentation` with the suggested `kind`.
 - Give `viewUrl` without calling `get_presentation_files` after the last upload.
